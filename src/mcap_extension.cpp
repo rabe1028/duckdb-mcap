@@ -211,20 +211,25 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	OpenAndReadSummary(bind_reader, result->file_path);
 
 	bool found = false;
+	mcap::SchemaId bound_schema_id = 0;
 	const auto &schemas_map = bind_reader.schemas();
 	for (const auto &[ch_id, ch_ptr] : bind_reader.channels()) {
 		if (ch_ptr->topic == result->topic) {
-			result->target_channel_ids.insert(ch_ptr->id);
-			// Parse schema from the first matching channel (all channels for the same topic share schema)
 			if (!found) {
+				// First matching channel: parse its schema
 				auto schema_it = schemas_map.find(ch_ptr->schemaId);
 				if (schema_it != schemas_map.end()) {
 					const auto &schema = *schema_it->second;
 					result->schema_name = schema.name;
 					std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
 					result->types = cdr::MsgParser::Parse(schema_text, schema.name);
+					bound_schema_id = ch_ptr->schemaId;
 					found = true;
 				}
+			}
+			// Only include channels with the same schema to prevent decoding with wrong layout
+			if (found && ch_ptr->schemaId == bound_schema_id) {
+				result->target_channel_ids.insert(ch_ptr->id);
 			}
 		}
 	}
@@ -298,15 +303,22 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 		if (msg_view.channel->messageEncoding == "cdr" && msg.data && msg.dataSize > 4) {
 			cdr::CdrReader cdr_reader(reinterpret_cast<const uint8_t *>(msg.data), msg.dataSize);
 			idx_t fi = 0;
-			for (; fi < n_fields && cdr_reader.Ok(); fi++) {
-				const auto &field = msg_def.fields[fi];
-				if (field.is_array) {
-					output.data[3 + fi].SetValue(count, CdrArrayToValue(cdr_reader, field, bind_data.types));
-				} else {
-					output.data[3 + fi].SetValue(count, CdrFieldToValue(cdr_reader, field.type_name, bind_data.types));
+			for (; fi < n_fields; fi++) {
+				if (!cdr_reader.Ok()) {
+					break;
 				}
+				const auto &field = msg_def.fields[fi];
+				Value val = field.is_array ? CdrArrayToValue(cdr_reader, field, bind_data.types)
+				                           : CdrFieldToValue(cdr_reader, field.type_name, bind_data.types);
+				// If decoding this field invalidated the reader, write NULL instead of the corrupt value
+				if (!cdr_reader.Ok()) {
+					output.data[3 + fi].SetValue(count, Value());
+					fi++;
+					break;
+				}
+				output.data[3 + fi].SetValue(count, std::move(val));
 			}
-			// NULL-fill remaining fields if CDR decode failed mid-message
+			// NULL-fill remaining fields after decode failure
 			for (; fi < n_fields; fi++) {
 				output.data[3 + fi].SetValue(count, Value());
 			}
