@@ -359,11 +359,30 @@ private:
 	bool valid_ = false;
 };
 
-// ── Type lookup helper (returns optional reference, not raw pointer) ────────
+// ── Type lookup (O(1) via pre-built index) ─────────────────────────────────
 using TypeMap = std::unordered_map<std::string, MsgDef>;
 
-inline std::optional<std::reference_wrapper<const MsgDef>> FindType(const std::string &type_name,
-                                                                    const TypeMap &types) {
+// Short-name index: basename → full name (empty string if ambiguous).
+// Built once at schema parse time, used for O(1) short-name resolution.
+using ShortNameIndex = std::unordered_map<std::string, std::string>;
+
+inline ShortNameIndex BuildShortNameIndex(const TypeMap &types) {
+	ShortNameIndex index;
+	for (const auto &[full_name, def] : types) {
+		auto last_slash = full_name.rfind('/');
+		if (last_slash == std::string::npos)
+			continue;
+		auto short_name = full_name.substr(last_slash + 1);
+		auto [it, inserted] = index.emplace(short_name, full_name);
+		if (!inserted) {
+			it->second.clear(); // ambiguous — mark as empty
+		}
+	}
+	return index;
+}
+
+inline std::optional<std::reference_wrapper<const MsgDef>> FindType(const std::string &type_name, const TypeMap &types,
+                                                                    const ShortNameIndex &short_names) {
 	// 1. Exact match
 	auto it = types.find(type_name);
 	if (it != types.end())
@@ -378,20 +397,13 @@ inline std::optional<std::reference_wrapper<const MsgDef>> FindType(const std::s
 			return std::cref(it->second);
 	}
 
-	// 3. Short name fallback: "Header" matches "std_msgs/msg/Header"
-	//    If multiple types share the same short name, return nullopt to avoid ambiguity.
-	const MsgDef *match = nullptr;
-	for (const auto &[name, def] : types) {
-		auto last_slash = name.rfind('/');
-		if (last_slash != std::string::npos && name.substr(last_slash + 1) == type_name) {
-			if (match) {
-				return std::nullopt; // ambiguous — multiple types with same short name
-			}
-			match = &def;
-		}
+	// 3. Short name via pre-built index (O(1) instead of O(n))
+	auto sit = short_names.find(type_name);
+	if (sit != short_names.end() && !sit->second.empty()) {
+		it = types.find(sit->second);
+		if (it != types.end())
+			return std::cref(it->second);
 	}
-	if (match)
-		return std::cref(*match);
 
 	return std::nullopt;
 }

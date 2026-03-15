@@ -96,43 +96,43 @@ static LogicalType PrimTypeToLogical(const std::string &type_name) {
 	return LogicalType(LogicalTypeId::VARCHAR);
 }
 
-static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const std::unordered_map<std::string, cdr::MsgDef> &types);
+static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const cdr::TypeMap &types,
+                                   const cdr::ShortNameIndex &short_names);
 
-static LogicalType FieldTypeToLogical(const std::string &type_name,
-                                      const std::unordered_map<std::string, cdr::MsgDef> &types) {
+static LogicalType FieldTypeToLogical(const std::string &type_name, const cdr::TypeMap &types,
+                                      const cdr::ShortNameIndex &short_names) {
 	if (cdr::GetPrimType(type_name).has_value())
 		return PrimTypeToLogical(type_name);
-	auto def = cdr::FindType(type_name, types);
+	auto def = cdr::FindType(type_name, types, short_names);
 	if (def.has_value())
-		return MsgDefToLogical(def->get(), types);
+		return MsgDefToLogical(def->get(), types, short_names);
 	return LogicalType(LogicalTypeId::VARCHAR);
 }
 
-// Maps a FieldDef to the appropriate DuckDB LogicalType (byte[]→BLOB, other[]→LIST).
-static LogicalType FieldDefToLogical(const cdr::FieldDef &field,
-                                     const std::unordered_map<std::string, cdr::MsgDef> &types) {
-	auto base_type = FieldTypeToLogical(field.type_name, types);
+static LogicalType FieldDefToLogical(const cdr::FieldDef &field, const cdr::TypeMap &types,
+                                     const cdr::ShortNameIndex &short_names) {
+	auto base_type = FieldTypeToLogical(field.type_name, types, short_names);
 	if (field.is_array) {
 		return cdr::IsByteType(field.type_name) ? LogicalType(LogicalTypeId::BLOB) : LogicalType::LIST(base_type);
 	}
 	return base_type;
 }
 
-static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const std::unordered_map<std::string, cdr::MsgDef> &types) {
+static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const cdr::TypeMap &types,
+                                   const cdr::ShortNameIndex &short_names) {
 	child_list_t<LogicalType> children;
 	for (const auto &field : msg.fields) {
-		children.push_back(make_pair(field.field_name, FieldDefToLogical(field, types)));
+		children.push_back(make_pair(field.field_name, FieldDefToLogical(field, types, short_names)));
 	}
 	return LogicalType::STRUCT(children);
 }
 
 // ── CDR binary → DuckDB Value ───────────────────────────────────────────────
-static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_name,
-                             const std::unordered_map<std::string, cdr::MsgDef> &types);
+static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_name, const cdr::TypeMap &types,
+                             const cdr::ShortNameIndex &short_names);
 
-// Decode a single array field to a DuckDB Value (BLOB for byte arrays, LIST otherwise).
-static Value CdrArrayToValue(cdr::CdrReader &reader, const cdr::FieldDef &field,
-                             const std::unordered_map<std::string, cdr::MsgDef> &types) {
+static Value CdrArrayToValue(cdr::CdrReader &reader, const cdr::FieldDef &field, const cdr::TypeMap &types,
+                             const cdr::ShortNameIndex &short_names) {
 	uint32_t cnt = reader.ReadArrayCount(field);
 	if (!reader.Ok()) {
 		return Value();
@@ -146,25 +146,30 @@ static Value CdrArrayToValue(cdr::CdrReader &reader, const cdr::FieldDef &field,
 	}
 	vector<Value> elements;
 	elements.reserve(cnt);
-	auto elem_type = FieldTypeToLogical(field.type_name, types);
+	auto elem_type = FieldTypeToLogical(field.type_name, types, short_names);
 	for (uint32_t i = 0; i < cnt && reader.Ok(); i++)
-		elements.push_back(CdrFieldToValue(reader, field.type_name, types));
+		elements.push_back(CdrFieldToValue(reader, field.type_name, types, short_names));
 	return Value::LIST(elem_type, std::move(elements));
 }
 
-static Value CdrMsgToValue(cdr::CdrReader &reader, const cdr::MsgDef &msg,
-                           const std::unordered_map<std::string, cdr::MsgDef> &types) {
+static Value CdrMsgToValue(cdr::CdrReader &reader, const cdr::MsgDef &msg, const cdr::TypeMap &types,
+                           const cdr::ShortNameIndex &short_names) {
 	child_list_t<Value> children;
 	for (const auto &field : msg.fields) {
-		Value val =
-		    field.is_array ? CdrArrayToValue(reader, field, types) : CdrFieldToValue(reader, field.type_name, types);
+		if (!reader.Ok()) {
+			// NULL-fill remaining fields on decode failure
+			children.push_back(make_pair(field.field_name, Value()));
+			continue;
+		}
+		Value val = field.is_array ? CdrArrayToValue(reader, field, types, short_names)
+		                           : CdrFieldToValue(reader, field.type_name, types, short_names);
 		children.push_back(make_pair(field.field_name, std::move(val)));
 	}
 	return Value::STRUCT(std::move(children));
 }
 
-static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_name,
-                             const std::unordered_map<std::string, cdr::MsgDef> &types) {
+static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_name, const cdr::TypeMap &types,
+                             const cdr::ShortNameIndex &short_names) {
 	auto prim = cdr::GetPrimType(type_name);
 	if (prim.has_value()) {
 		switch (*prim) {
@@ -196,9 +201,9 @@ static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_nam
 			return Value(reader.ReadString());
 		}
 	}
-	auto def = cdr::FindType(type_name, types);
+	auto def = cdr::FindType(type_name, types, short_names);
 	if (def.has_value())
-		return CdrMsgToValue(reader, def->get(), types);
+		return CdrMsgToValue(reader, def->get(), types, short_names);
 	return Value();
 }
 
@@ -213,6 +218,7 @@ struct ReadMcapChannelBindData : public TableFunctionData {
 	std::unordered_set<mcap::ChannelId> target_channel_ids;
 	string schema_name;
 	std::unordered_map<std::string, cdr::MsgDef> types;
+	cdr::ShortNameIndex short_names; // pre-built index for O(1) short-name lookup
 };
 
 static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, TableFunctionBindInput &input,
@@ -247,6 +253,7 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	result->schema_name = schema.name;
 	std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
 	result->types = cdr::MsgParser::Parse(schema_text, schema.name);
+	result->short_names = cdr::BuildShortNameIndex(result->types);
 
 	// Pass 2: collect all channels with the same schema
 	for (const auto &[ch_id, ch_ptr] : channels_map) {
@@ -267,7 +274,7 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	if (main_it != result->types.end()) {
 		for (const auto &field : main_it->second.fields) {
 			names.emplace_back(field.field_name);
-			return_types.emplace_back(FieldDefToLogical(field, result->types));
+			return_types.emplace_back(FieldDefToLogical(field, result->types, result->short_names));
 		}
 	}
 
@@ -317,6 +324,8 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 		output.data[1].SetValue(count, Value::TIMESTAMPNS(SafeTimestampNs(msg.logTime)));
 		output.data[2].SetValue(count, Value::TIMESTAMPNS(SafeTimestampNs(msg.publishTime)));
 
+		// SAFETY: msg.data pointer is valid only until the iterator is advanced (++gstate.it).
+		// All CdrReader operations must complete before that point.
 		if (msg_view.channel->messageEncoding == "cdr" && msg.data && msg.dataSize > 4) {
 			cdr::CdrReader cdr_reader(reinterpret_cast<const uint8_t *>(msg.data), msg.dataSize);
 			idx_t fi = 0;
@@ -325,8 +334,9 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 					break;
 				}
 				const auto &field = msg_def.fields[fi];
-				Value val = field.is_array ? CdrArrayToValue(cdr_reader, field, bind_data.types)
-				                           : CdrFieldToValue(cdr_reader, field.type_name, bind_data.types);
+				Value val = field.is_array
+				                ? CdrArrayToValue(cdr_reader, field, bind_data.types, bind_data.short_names)
+				                : CdrFieldToValue(cdr_reader, field.type_name, bind_data.types, bind_data.short_names);
 				// If decoding this field invalidated the reader, write NULL instead of the corrupt value
 				if (!cdr_reader.Ok()) {
 					output.data[3 + fi].SetValue(count, Value());
