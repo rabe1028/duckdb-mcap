@@ -16,6 +16,7 @@ using namespace duckdb_zstd; // NOLINT
 #include <mcap/reader.hpp>
 
 #include <memory>
+#include <unordered_set>
 
 namespace duckdb {
 
@@ -194,8 +195,8 @@ static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_nam
 struct ReadMcapChannelBindData : public TableFunctionData {
 	string file_path;
 	string topic;
-	mcap::ChannelId target_channel_id = 0;
-	bool channel_id_resolved = false;
+	// A topic can span multiple MCAP channels (one per publisher connection)
+	std::unordered_set<mcap::ChannelId> target_channel_ids;
 	string schema_name;
 	std::unordered_map<std::string, cdr::MsgDef> types;
 };
@@ -213,17 +214,18 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	const auto &schemas_map = bind_reader.schemas();
 	for (const auto &[ch_id, ch_ptr] : bind_reader.channels()) {
 		if (ch_ptr->topic == result->topic) {
-			result->target_channel_id = ch_ptr->id;
-			result->channel_id_resolved = true;
-			auto schema_it = schemas_map.find(ch_ptr->schemaId);
-			if (schema_it != schemas_map.end()) {
-				const auto &schema = *schema_it->second;
-				result->schema_name = schema.name;
-				std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
-				result->types = cdr::MsgParser::Parse(schema_text, schema.name);
-				found = true;
+			result->target_channel_ids.insert(ch_ptr->id);
+			// Parse schema from the first matching channel (all channels for the same topic share schema)
+			if (!found) {
+				auto schema_it = schemas_map.find(ch_ptr->schemaId);
+				if (schema_it != schemas_map.end()) {
+					const auto &schema = *schema_it->second;
+					result->schema_name = schema.name;
+					std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
+					result->types = cdr::MsgParser::Parse(schema_text, schema.name);
+					found = true;
+				}
 			}
-			break;
 		}
 	}
 	bind_reader.close();
@@ -283,8 +285,8 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 		const auto &msg_view = **gstate.it;
 		const auto &msg = msg_view.message;
 
-		// Filter by channel ID (integer comparison, not string)
-		if (!bind_data.channel_id_resolved || msg.channelId != bind_data.target_channel_id) {
+		// Filter by channel ID set (integer lookup, not string comparison)
+		if (bind_data.target_channel_ids.find(msg.channelId) == bind_data.target_channel_ids.end()) {
 			++(*gstate.it);
 			continue;
 		}

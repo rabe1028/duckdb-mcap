@@ -286,7 +286,8 @@ public:
 		return result;
 	}
 
-	// Read array element count (fixed or dynamic) with safety cap.
+	// Read array element count (fixed or dynamic). Invalidates reader if count exceeds safety limit
+	// to prevent corrupted decoding of subsequent fields.
 	uint32_t ReadArrayCount(const FieldDef &field) {
 		uint32_t count;
 		if (field.array_size >= 0) {
@@ -294,8 +295,10 @@ public:
 		} else {
 			count = ReadUint32();
 		}
-		if (count > MAX_ARRAY_SIZE)
-			count = MAX_ARRAY_SIZE;
+		if (count > MAX_ARRAY_SIZE) {
+			valid_ = false;
+			return 0;
+		}
 		return count;
 	}
 
