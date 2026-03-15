@@ -2,7 +2,6 @@
 // Simulates a minimal Autoware-like recording with realistic ROS2 schemas
 
 #define MCAP_IMPLEMENTATION
-#define MCAP_COMPRESSION_NO_LZ4
 
 #include <mcap/writer.hpp>
 #include <cmath>

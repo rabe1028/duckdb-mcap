@@ -204,14 +204,16 @@ public:
 			valid_ = false;
 			return;
 		}
+		// Only CDR1 is supported (0x00=CDR_BE, 0x01=CDR_LE).
+		// CDR2/XCDR2 (0x06/0x07) has different alignment rules and is not implemented.
 		uint8_t encap = data[1];
-		if (encap != 0x00 && encap != 0x01 && encap != 0x06 && encap != 0x07) {
+		if (encap != 0x00 && encap != 0x01) {
 			base_ = data;
 			size_ = 0;
 			valid_ = false;
 			return;
 		}
-		le_ = (encap == 0x01 || encap == 0x06);
+		le_ = (encap == 0x01);
 		base_ = data + 4;
 		size_ = size - 4;
 		valid_ = true;
@@ -223,6 +225,10 @@ public:
 
 	bool Ok() const {
 		return valid_;
+	}
+
+	void Invalidate() {
+		valid_ = false;
 	}
 
 	void Align(size_t alignment) {

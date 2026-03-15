@@ -204,6 +204,8 @@ static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_nam
 	auto def = cdr::FindType(type_name, types, short_names);
 	if (def.has_value())
 		return CdrMsgToValue(reader, def->get(), types, short_names);
+	// Unknown type: invalidate reader so subsequent fields are not decoded from wrong offset
+	reader.Invalidate();
 	return Value();
 }
 
@@ -233,31 +235,55 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	const auto &schemas_map = bind_reader.schemas();
 	const auto &channels_map = bind_reader.channels();
 
-	// Pass 1: find the smallest schemaId for this topic (deterministic regardless of hash order)
+	// Pass 1: find the smallest schemaId for CDR channels on this topic
 	std::optional<mcap::SchemaId> bound_schema_id;
+	bool has_other_schemas = false;
 	for (const auto &[ch_id, ch_ptr] : channels_map) {
-		if (ch_ptr->topic == result->topic && schemas_map.count(ch_ptr->schemaId)) {
-			if (!bound_schema_id.has_value() || ch_ptr->schemaId < *bound_schema_id) {
-				bound_schema_id = ch_ptr->schemaId;
+		if (ch_ptr->topic != result->topic || ch_ptr->messageEncoding != "cdr") {
+			continue;
+		}
+		if (!schemas_map.count(ch_ptr->schemaId)) {
+			continue;
+		}
+		if (!bound_schema_id.has_value() || ch_ptr->schemaId < *bound_schema_id) {
+			if (bound_schema_id.has_value()) {
+				has_other_schemas = true;
 			}
+			bound_schema_id = ch_ptr->schemaId;
+		} else if (ch_ptr->schemaId != *bound_schema_id) {
+			has_other_schemas = true;
 		}
 	}
 
 	if (!bound_schema_id.has_value()) {
 		bind_reader.close();
-		throw IOException("Topic '%s' not found in MCAP file '%s'", result->topic, result->file_path);
+		throw IOException("Topic '%s' not found (or no CDR channels) in MCAP file '%s'", result->topic,
+		                  result->file_path);
 	}
 
-	// Parse the selected schema
+	if (has_other_schemas) {
+		bind_reader.close();
+		throw IOException("Topic '%s' has multiple schema IDs in '%s'. Mixed schemas are not supported.", result->topic,
+		                  result->file_path);
+	}
+
+	// Validate schema encoding is ros2msg before parsing
 	const auto &schema = *schemas_map.at(*bound_schema_id);
+	if (schema.encoding != "ros2msg") {
+		bind_reader.close();
+		throw IOException("Topic '%s' uses unsupported schema encoding '%s' (only ros2msg is supported)", result->topic,
+		                  schema.encoding);
+	}
+
 	result->schema_name = schema.name;
 	std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
 	result->types = cdr::MsgParser::Parse(schema_text, schema.name);
 	result->short_names = cdr::BuildShortNameIndex(result->types);
 
-	// Pass 2: collect all channels with the same schema
+	// Pass 2: collect all CDR channels with the bound schema
 	for (const auto &[ch_id, ch_ptr] : channels_map) {
-		if (ch_ptr->topic == result->topic && ch_ptr->schemaId == *bound_schema_id) {
+		if (ch_ptr->topic == result->topic && ch_ptr->messageEncoding == "cdr" &&
+		    ch_ptr->schemaId == *bound_schema_id) {
 			result->target_channel_ids.insert(ch_ptr->id);
 		}
 	}
