@@ -62,6 +62,56 @@ struct MsgDef {
 	std::vector<FieldDef> fields;
 };
 
+// ── ParseFieldLine: parse a single msg line into FieldDef (pure function) ──
+inline std::optional<FieldDef> ParseFieldLine(const std::string &line) {
+	auto start = line.find_first_not_of(" \t\r\n");
+	if (start == std::string::npos)
+		return std::nullopt;
+	auto end = line.find_last_not_of(" \t\r\n");
+	auto trimmed = line.substr(start, end - start + 1);
+
+	if (trimmed.empty() || trimmed[0] == '#')
+		return std::nullopt;
+
+	std::istringstream stream(trimmed);
+	std::string type_str, field_name;
+	if (!(stream >> type_str >> field_name))
+		return std::nullopt;
+
+	// Skip constants: "uint8 FOO=42"
+	if (field_name.find('=') != std::string::npos)
+		return std::nullopt;
+
+	FieldDef field;
+	field.field_name = field_name;
+
+	// Strip bounded type suffix like string<=256
+	auto leq = type_str.find("<=");
+	if (leq != std::string::npos)
+		type_str = type_str.substr(0, leq);
+
+	// Array notation: type[] or type[N]
+	auto br_open = type_str.find('[');
+	if (br_open != std::string::npos) {
+		field.is_array = true;
+		auto br_close = type_str.find(']', br_open);
+		if (br_close != std::string::npos) {
+			std::string size_str = type_str.substr(br_open + 1, br_close - br_open - 1);
+			if (!size_str.empty()) {
+				try {
+					field.array_size = std::stoi(size_str);
+				} catch (...) {
+					field.array_size = -1;
+				}
+			}
+		}
+		type_str = type_str.substr(0, br_open);
+	}
+
+	field.type_name = type_str;
+	return field;
+}
+
 // ── ROS2 Msg Schema Parser ────────────────────────────────────────────────
 class MsgParser {
 public:
@@ -119,45 +169,11 @@ private:
 		std::vector<FieldDef> fields;
 		std::istringstream stream(body);
 		std::string line;
-
 		while (std::getline(stream, line)) {
-			auto trimmed = Trim(line);
-			if (trimmed.empty() || trimmed[0] == '#')
-				continue;
-
-			auto parts = SplitWhitespace(trimmed);
-			if (parts.size() < 2)
-				continue;
-			if (parts[1].find('=') != std::string::npos)
-				continue;
-
-			FieldDef field;
-			std::string type_str = parts[0];
-			field.field_name = parts[1];
-
-			auto leq = type_str.find("<=");
-			if (leq != std::string::npos)
-				type_str = type_str.substr(0, leq);
-
-			auto br_open = type_str.find('[');
-			if (br_open != std::string::npos) {
-				field.is_array = true;
-				auto br_close = type_str.find(']', br_open);
-				if (br_close != std::string::npos) {
-					std::string size_str = type_str.substr(br_open + 1, br_close - br_open - 1);
-					if (!size_str.empty()) {
-						try {
-							field.array_size = std::stoi(size_str);
-						} catch (...) {
-							field.array_size = -1;
-						}
-					}
-				}
-				type_str = type_str.substr(0, br_open);
+			auto field = ParseFieldLine(line);
+			if (field.has_value()) {
+				fields.push_back(std::move(*field));
 			}
-
-			field.type_name = type_str;
-			fields.push_back(std::move(field));
 		}
 		return fields;
 	}
@@ -168,15 +184,6 @@ private:
 			return "";
 		auto end = s.find_last_not_of(" \t\r\n");
 		return s.substr(start, end - start + 1);
-	}
-
-	static std::vector<std::string> SplitWhitespace(const std::string &s) {
-		std::vector<std::string> result;
-		std::istringstream stream(s);
-		std::string token;
-		while (stream >> token)
-			result.push_back(token);
-		return result;
 	}
 };
 
@@ -338,28 +345,34 @@ private:
 	bool valid_ = false;
 };
 
-// ── Type lookup helper ─────────────────────────────────────────────────────
-inline const MsgDef *FindType(const std::string &type_name, const std::unordered_map<std::string, MsgDef> &types) {
+// ── Type lookup helper (returns optional reference, not raw pointer) ────────
+using TypeMap = std::unordered_map<std::string, MsgDef>;
+
+inline std::optional<std::reference_wrapper<const MsgDef>> FindType(const std::string &type_name,
+                                                                    const TypeMap &types) {
+	// 1. Exact match
 	auto it = types.find(type_name);
 	if (it != types.end())
-		return &it->second;
+		return std::cref(it->second);
 
+	// 2. Insert /msg/: "geometry_msgs/Point" → "geometry_msgs/msg/Point"
 	auto slash = type_name.find('/');
 	if (slash != std::string::npos && type_name.find("/msg/") == std::string::npos) {
 		std::string with_msg = type_name.substr(0, slash) + "/msg/" + type_name.substr(slash + 1);
 		it = types.find(with_msg);
 		if (it != types.end())
-			return &it->second;
+			return std::cref(it->second);
 	}
 
+	// 3. Short name fallback: "Header" matches "std_msgs/msg/Header"
 	for (const auto &[name, def] : types) {
 		auto last_slash = name.rfind('/');
 		if (last_slash != std::string::npos && name.substr(last_slash + 1) == type_name) {
-			return &def;
+			return std::cref(def);
 		}
 	}
 
-	return nullptr;
+	return std::nullopt;
 }
 
 } // namespace cdr

@@ -382,3 +382,59 @@ statement error
 SELECT * FROM read_mcap_channel('data/demo.mcap', '/nonexistent/topic');
 ----
 Topic '/nonexistent/topic' not found
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Boundary / edge cases
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Empty result set with LIMIT 0
+query I
+SELECT count(*) FROM (SELECT * FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 0);
+----
+0
+
+# All rows fetched (no off-by-one on iterator exhaustion)
+query I
+SELECT count(*) = (SELECT message_count FROM mcap_statistics('data/demo.mcap'))
+FROM (
+  SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/localization/pose')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/twist')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/velocity')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud')
+);
+----
+true
+
+# Cross-check: channels count matches distinct topics in data
+query I
+SELECT (SELECT count(*) FROM mcap_channels('data/demo.mcap'))
+     = (SELECT count(*) FROM mcap_schemas('data/demo.mcap'));
+----
+true
+
+# First and last sequence numbers are consistent
+query II
+SELECT min(sequence), max(sequence)
+FROM read_mcap_channel('data/demo.mcap', '/localization/pose');
+----
+0	446
+
+# Compressed files produce identical row counts as uncompressed
+query I
+SELECT
+  (SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/localization/pose'))
+= (SELECT count(*) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose'))
+AND
+  (SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/localization/pose'))
+= (SELECT count(*) FROM read_mcap_channel('data/demo_lz4.mcap', '/localization/pose'));
+----
+true
+
+# Compressed files produce identical values as uncompressed (spot check first row)
+query I
+SELECT
+  (SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1)
+= (SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose') LIMIT 1);
+----
+true

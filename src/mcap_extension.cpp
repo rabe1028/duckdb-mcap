@@ -94,9 +94,9 @@ static LogicalType FieldTypeToLogical(const std::string &type_name,
                                       const std::unordered_map<std::string, cdr::MsgDef> &types) {
 	if (cdr::GetPrimType(type_name).has_value())
 		return PrimTypeToLogical(type_name);
-	const cdr::MsgDef *def = cdr::FindType(type_name, types);
-	if (def)
-		return MsgDefToLogical(*def, types);
+	auto def = cdr::FindType(type_name, types);
+	if (def.has_value())
+		return MsgDefToLogical(def->get(), types);
 	return LogicalType(LogicalTypeId::VARCHAR);
 }
 
@@ -182,9 +182,9 @@ static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_nam
 			return Value(reader.ReadString());
 		}
 	}
-	const cdr::MsgDef *def = cdr::FindType(type_name, types);
-	if (def)
-		return CdrMsgToValue(reader, *def, types);
+	auto def = cdr::FindType(type_name, types);
+	if (def.has_value())
+		return CdrMsgToValue(reader, def->get(), types);
 	return Value();
 }
 
