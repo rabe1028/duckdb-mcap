@@ -15,8 +15,7 @@ set(EXTENSION_SOURCES
     third_party/lz4/lz4.c
     third_party/lz4/lz4hc.c
     third_party/lz4/lz4frame.c
-    third_party/lz4/xxhash.c
-    third_party/zstd/zstddeclib.c)
+    third_party/lz4/xxhash.c)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
@@ -25,9 +24,9 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 target_compile_features(${EXTENSION_NAME} PRIVATE cxx_std_17)
 target_compile_features(${LOADABLE_EXTENSION_NAME} PRIVATE cxx_std_17)
 
-# Our bundled zstd must take precedence over DuckDB's namespaced zstd
-target_include_directories(${EXTENSION_NAME} BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd)
-target_include_directories(${LOADABLE_EXTENSION_NAME} BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd)
+# zstd: use DuckDB's bundled zstd (duckdb_zstd namespace, resolved via using-directive in source)
+target_include_directories(${EXTENSION_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/../duckdb/third_party/zstd/include)
+target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/../duckdb/third_party/zstd/include)
 
 install(
   TARGETS ${EXTENSION_NAME}

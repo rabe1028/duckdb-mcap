@@ -1,6 +1,4 @@
 #define DUCKDB_EXTENSION_MAIN
-
-// lz4 and zstd decompression enabled via bundled third_party libraries
 #define MCAP_IMPLEMENTATION
 
 #include "mcap_extension.hpp"
@@ -9,6 +7,12 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/table_function.hpp"
 
+// zstd: reuse DuckDB's bundled zstd (lives in duckdb_zstd namespace)
+#include <zstd.h>
+#include <zstd_errors.h>
+using namespace duckdb_zstd; // NOLINT
+
+// lz4: bundled in third_party/lz4 (global namespace, no conflict)
 #include <mcap/reader.hpp>
 
 #include <memory>
