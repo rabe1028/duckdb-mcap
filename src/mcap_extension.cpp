@@ -210,34 +210,37 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	mcap::McapReader bind_reader;
 	OpenAndReadSummary(bind_reader, result->file_path);
 
-	bool found = false;
-	mcap::SchemaId bound_schema_id = 0;
 	const auto &schemas_map = bind_reader.schemas();
-	for (const auto &[ch_id, ch_ptr] : bind_reader.channels()) {
-		if (ch_ptr->topic == result->topic) {
-			if (!found) {
-				// First matching channel: parse its schema
-				auto schema_it = schemas_map.find(ch_ptr->schemaId);
-				if (schema_it != schemas_map.end()) {
-					const auto &schema = *schema_it->second;
-					result->schema_name = schema.name;
-					std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
-					result->types = cdr::MsgParser::Parse(schema_text, schema.name);
-					bound_schema_id = ch_ptr->schemaId;
-					found = true;
-				}
-			}
-			// Only include channels with the same schema to prevent decoding with wrong layout
-			if (found && ch_ptr->schemaId == bound_schema_id) {
-				result->target_channel_ids.insert(ch_ptr->id);
+	const auto &channels_map = bind_reader.channels();
+
+	// Pass 1: find the smallest schemaId for this topic (deterministic regardless of hash order)
+	std::optional<mcap::SchemaId> bound_schema_id;
+	for (const auto &[ch_id, ch_ptr] : channels_map) {
+		if (ch_ptr->topic == result->topic && schemas_map.count(ch_ptr->schemaId)) {
+			if (!bound_schema_id.has_value() || ch_ptr->schemaId < *bound_schema_id) {
+				bound_schema_id = ch_ptr->schemaId;
 			}
 		}
 	}
-	bind_reader.close();
 
-	if (!found) {
+	if (!bound_schema_id.has_value()) {
+		bind_reader.close();
 		throw IOException("Topic '%s' not found in MCAP file '%s'", result->topic, result->file_path);
 	}
+
+	// Parse the selected schema
+	const auto &schema = *schemas_map.at(*bound_schema_id);
+	result->schema_name = schema.name;
+	std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
+	result->types = cdr::MsgParser::Parse(schema_text, schema.name);
+
+	// Pass 2: collect all channels with the same schema
+	for (const auto &[ch_id, ch_ptr] : channels_map) {
+		if (ch_ptr->topic == result->topic && ch_ptr->schemaId == *bound_schema_id) {
+			result->target_channel_ids.insert(ch_ptr->id);
+		}
+	}
+	bind_reader.close();
 
 	names.emplace_back("sequence");
 	return_types.emplace_back(LogicalType(LogicalTypeId::UINTEGER));

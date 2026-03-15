@@ -85,12 +85,7 @@ inline std::optional<FieldDef> ParseFieldLine(const std::string &line) {
 	FieldDef field;
 	field.field_name = field_name;
 
-	// Strip bounded type suffix like string<=256
-	auto leq = type_str.find("<=");
-	if (leq != std::string::npos)
-		type_str = type_str.substr(0, leq);
-
-	// Array notation: type[] or type[N]
+	// Array notation first (before stripping bounded suffix, since "string<=32[]" has both)
 	auto br_open = type_str.find('[');
 	if (br_open != std::string::npos) {
 		field.is_array = true;
@@ -107,6 +102,11 @@ inline std::optional<FieldDef> ParseFieldLine(const std::string &line) {
 		}
 		type_str = type_str.substr(0, br_open);
 	}
+
+	// Strip bounded type suffix like string<=256 (after array brackets are removed)
+	auto leq = type_str.find("<=");
+	if (leq != std::string::npos)
+		type_str = type_str.substr(0, leq);
 
 	field.type_name = type_str;
 	return field;
