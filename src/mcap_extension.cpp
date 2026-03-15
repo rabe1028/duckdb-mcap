@@ -1,7 +1,6 @@
 #define DUCKDB_EXTENSION_MAIN
 
-// LZ4 frame API not available in DuckDB's bundled lz4
-#define MCAP_COMPRESSION_NO_LZ4
+// lz4 and zstd decompression enabled via bundled third_party libraries
 #define MCAP_IMPLEMENTATION
 
 #include "mcap_extension.hpp"
@@ -9,12 +8,6 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/table_function.hpp"
-
-// DuckDB's bundled zstd lives in the duckdb_zstd namespace.
-// Include it explicitly and bring into global scope so MCAP reader can find ZSTD_* symbols.
-#include <zstd.h>
-#include <zstd_errors.h>
-using namespace duckdb_zstd; // NOLINT
 
 #include <mcap/reader.hpp>
 

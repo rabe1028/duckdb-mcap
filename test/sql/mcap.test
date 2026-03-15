@@ -334,6 +334,25 @@ SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_zstd.m
 100
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# lz4-compressed MCAP file
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query I
+SELECT message_count FROM mcap_statistics('data/demo_lz4.mcap');
+----
+450
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo_lz4.mcap', '/localization/pose');
+----
+100
+
+query I
+SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_lz4.mcap', '/localization/pose') LIMIT 1;
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Error cases
 # ═══════════════════════════════════════════════════════════════════════════════
 

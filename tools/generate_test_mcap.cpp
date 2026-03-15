@@ -226,11 +226,17 @@ static void WriteVector3(CdrWriter &w, double x, double y, double z) {
 
 int main(int argc, char *argv[]) {
 	const std::string output_path = (argc > 1) ? argv[1] : "data/demo.mcap";
-	bool use_zstd = (argc > 2 && std::string(argv[2]) == "--zstd");
+	std::string compression_arg = (argc > 2) ? argv[2] : "";
 
 	mcap::McapWriter writer;
 	mcap::McapWriterOptions options("ros2");
-	options.compression = use_zstd ? mcap::Compression::Zstd : mcap::Compression::None;
+	if (compression_arg == "--zstd") {
+		options.compression = mcap::Compression::Zstd;
+	} else if (compression_arg == "--lz4") {
+		options.compression = mcap::Compression::Lz4;
+	} else {
+		options.compression = mcap::Compression::None;
+	}
 
 	auto status = writer.open(output_path, options);
 	if (!status.ok()) {

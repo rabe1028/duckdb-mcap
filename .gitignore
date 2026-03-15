@@ -8,3 +8,5 @@ test/python/__pycache__/
 .Rhistory
 foxglove-mcap/
 tools/generate_test_mcap
+lz4-src/
+zstd-src/
