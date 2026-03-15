@@ -286,8 +286,9 @@ public:
 		return result;
 	}
 
-	// Read array element count (fixed or dynamic). Invalidates reader if count exceeds safety limit
-	// to prevent corrupted decoding of subsequent fields.
+	// Read array element count (fixed or dynamic).
+	// Byte arrays (uint8[]/byte[]) are bounded by the buffer size, so no artificial cap.
+	// Non-byte arrays are capped at MAX_ARRAY_SIZE to prevent runaway struct decoding.
 	uint32_t ReadArrayCount(const FieldDef &field) {
 		uint32_t count;
 		if (field.array_size >= 0) {
@@ -295,7 +296,9 @@ public:
 		} else {
 			count = ReadUint32();
 		}
-		if (count > MAX_ARRAY_SIZE) {
+		// Byte arrays are read in bulk (ReadBytes) and bounded by buffer size — no cap needed.
+		// Non-byte arrays decode per-element, so cap to prevent excessive work on corrupt data.
+		if (!IsByteType(field.type_name) && count > MAX_ARRAY_SIZE) {
 			valid_ = false;
 			return 0;
 		}

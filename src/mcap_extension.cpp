@@ -297,13 +297,18 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 
 		if (msg_view.channel->messageEncoding == "cdr" && msg.data && msg.dataSize > 4) {
 			cdr::CdrReader cdr_reader(reinterpret_cast<const uint8_t *>(msg.data), msg.dataSize);
-			for (idx_t fi = 0; fi < n_fields && cdr_reader.Ok(); fi++) {
+			idx_t fi = 0;
+			for (; fi < n_fields && cdr_reader.Ok(); fi++) {
 				const auto &field = msg_def.fields[fi];
 				if (field.is_array) {
 					output.data[3 + fi].SetValue(count, CdrArrayToValue(cdr_reader, field, bind_data.types));
 				} else {
 					output.data[3 + fi].SetValue(count, CdrFieldToValue(cdr_reader, field.type_name, bind_data.types));
 				}
+			}
+			// NULL-fill remaining fields if CDR decode failed mid-message
+			for (; fi < n_fields; fi++) {
+				output.data[3 + fi].SetValue(count, Value());
 			}
 		} else {
 			for (idx_t fi = 0; fi < n_fields; fi++)
