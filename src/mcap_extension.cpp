@@ -48,7 +48,8 @@ struct McapIterState : public GlobalTableFunctionState {
 
 	void Open(const std::string &path) {
 		OpenAndReadSummary(reader, path);
-		auto on_problem = [](const mcap::Status &) {};
+		auto on_problem = [](const mcap::Status &) {
+		};
 		message_view = std::make_unique<mcap::LinearMessageView>(reader.readMessages(on_problem));
 		it = message_view->begin();
 		opened = true;
@@ -84,8 +85,7 @@ static LogicalType PrimTypeToLogical(const std::string &type_name) {
 	return LogicalType::VARCHAR;
 }
 
-static LogicalType MsgDefToLogical(const cdr::MsgDef &msg,
-                                   const std::unordered_map<std::string, cdr::MsgDef> &types);
+static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const std::unordered_map<std::string, cdr::MsgDef> &types);
 
 static LogicalType FieldTypeToLogical(const std::string &type_name,
                                       const std::unordered_map<std::string, cdr::MsgDef> &types) {
@@ -107,8 +107,7 @@ static LogicalType FieldDefToLogical(const cdr::FieldDef &field,
 	return base_type;
 }
 
-static LogicalType MsgDefToLogical(const cdr::MsgDef &msg,
-                                   const std::unordered_map<std::string, cdr::MsgDef> &types) {
+static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const std::unordered_map<std::string, cdr::MsgDef> &types) {
 	child_list_t<LogicalType> children;
 	for (const auto &field : msg.fields) {
 		children.push_back(make_pair(field.field_name, FieldDefToLogical(field, types)));
@@ -126,8 +125,7 @@ static Value CdrArrayToValue(cdr::CdrReader &reader, const cdr::FieldDef &field,
 	uint32_t cnt = reader.ReadArrayCount(field);
 	if (cdr::IsByteType(field.type_name)) {
 		auto blob_data = reader.ReadBytes(cnt);
-		return Value::BLOB(reinterpret_cast<const_data_ptr_t>(blob_data.data()),
-		                   static_cast<idx_t>(blob_data.size()));
+		return Value::BLOB(reinterpret_cast<const_data_ptr_t>(blob_data.data()), static_cast<idx_t>(blob_data.size()));
 	}
 	vector<Value> elements;
 	elements.reserve(cnt);
@@ -141,8 +139,8 @@ static Value CdrMsgToValue(cdr::CdrReader &reader, const cdr::MsgDef &msg,
                            const std::unordered_map<std::string, cdr::MsgDef> &types) {
 	child_list_t<Value> children;
 	for (const auto &field : msg.fields) {
-		Value val = field.is_array ? CdrArrayToValue(reader, field, types)
-		                           : CdrFieldToValue(reader, field.type_name, types);
+		Value val =
+		    field.is_array ? CdrArrayToValue(reader, field, types) : CdrFieldToValue(reader, field.type_name, types);
 		children.push_back(make_pair(field.field_name, std::move(val)));
 	}
 	return Value::STRUCT(std::move(children));
@@ -219,8 +217,7 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 			if (schema_it != schemas_map.end()) {
 				const auto &schema = *schema_it->second;
 				result->schema_name = schema.name;
-				std::string schema_text(reinterpret_cast<const char *>(schema.data.data()),
-				                        schema.data.size());
+				std::string schema_text(reinterpret_cast<const char *>(schema.data.data()), schema.data.size());
 				result->types = cdr::MsgParser::Parse(schema_text, schema.name);
 				found = true;
 			}
@@ -292,8 +289,7 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 
 		output.data[0].SetValue(count, Value::UINTEGER(msg.sequence));
 		output.data[1].SetValue(count, Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(msg.logTime))));
-		output.data[2].SetValue(count,
-		                        Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(msg.publishTime))));
+		output.data[2].SetValue(count, Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(msg.publishTime))));
 
 		if (msg_view.channel->messageEncoding == "cdr" && msg.data && msg.dataSize > 4) {
 			cdr::CdrReader cdr_reader(reinterpret_cast<const uint8_t *>(msg.data), msg.dataSize);
@@ -302,8 +298,7 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 				if (field.is_array) {
 					output.data[3 + fi].SetValue(count, CdrArrayToValue(cdr_reader, field, bind_data.types));
 				} else {
-					output.data[3 + fi].SetValue(
-					    count, CdrFieldToValue(cdr_reader, field.type_name, bind_data.types));
+					output.data[3 + fi].SetValue(count, CdrFieldToValue(cdr_reader, field.type_name, bind_data.types));
 				}
 			}
 		} else {
@@ -542,16 +537,16 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                ReadMcapChannelFunction, ReadMcapChannelBind, ReadMcapChannelInitGlobal);
 	loader.RegisterFunction(read_mcap_channel);
 
-	TableFunction mcap_channels("mcap_channels", {LogicalType::VARCHAR}, McapChannelsFunction,
-	                            McapChannelsBind, McapChannelsInitGlobal);
+	TableFunction mcap_channels("mcap_channels", {LogicalType::VARCHAR}, McapChannelsFunction, McapChannelsBind,
+	                            McapChannelsInitGlobal);
 	loader.RegisterFunction(mcap_channels);
 
 	TableFunction mcap_schemas("mcap_schemas", {LogicalType::VARCHAR}, McapSchemasFunction, McapSchemasBind,
 	                           McapSchemasInitGlobal);
 	loader.RegisterFunction(mcap_schemas);
 
-	TableFunction mcap_statistics("mcap_statistics", {LogicalType::VARCHAR}, McapStatisticsFunction,
-	                              McapStatisticsBind, McapStatisticsInitGlobal);
+	TableFunction mcap_statistics("mcap_statistics", {LogicalType::VARCHAR}, McapStatisticsFunction, McapStatisticsBind,
+	                              McapStatisticsInitGlobal);
 	loader.RegisterFunction(mcap_statistics);
 }
 

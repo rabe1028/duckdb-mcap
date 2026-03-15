@@ -33,10 +33,10 @@ enum class PrimType {
 
 inline std::optional<PrimType> GetPrimType(const std::string &type_name) {
 	static const std::unordered_map<std::string, PrimType> map = {
-	    {"bool", PrimType::BOOL},       {"int8", PrimType::INT8},       {"uint8", PrimType::UINT8},
-	    {"byte", PrimType::BYTE},       {"char", PrimType::CHAR},       {"int16", PrimType::INT16},
-	    {"uint16", PrimType::UINT16},   {"int32", PrimType::INT32},     {"uint32", PrimType::UINT32},
-	    {"int64", PrimType::INT64},     {"uint64", PrimType::UINT64},   {"float32", PrimType::FLOAT32},
+	    {"bool", PrimType::BOOL},       {"int8", PrimType::INT8},     {"uint8", PrimType::UINT8},
+	    {"byte", PrimType::BYTE},       {"char", PrimType::CHAR},     {"int16", PrimType::INT16},
+	    {"uint16", PrimType::UINT16},   {"int32", PrimType::INT32},   {"uint32", PrimType::UINT32},
+	    {"int64", PrimType::INT64},     {"uint64", PrimType::UINT64}, {"float32", PrimType::FLOAT32},
 	    {"float64", PrimType::FLOAT64}, {"string", PrimType::STRING},
 	};
 	auto it = map.find(type_name);
@@ -65,8 +65,7 @@ struct MsgDef {
 // ── ROS2 Msg Schema Parser ────────────────────────────────────────────────
 class MsgParser {
 public:
-	static std::unordered_map<std::string, MsgDef> Parse(const std::string &schema_text,
-	                                                     const std::string &main_type) {
+	static std::unordered_map<std::string, MsgDef> Parse(const std::string &schema_text, const std::string &main_type) {
 		std::unordered_map<std::string, MsgDef> result;
 		auto sections = SplitSections(schema_text);
 
@@ -334,8 +333,7 @@ private:
 };
 
 // ── Type lookup helper ─────────────────────────────────────────────────────
-inline const MsgDef *FindType(const std::string &type_name,
-                              const std::unordered_map<std::string, MsgDef> &types) {
+inline const MsgDef *FindType(const std::string &type_name, const std::unordered_map<std::string, MsgDef> &types) {
 	auto it = types.find(type_name);
 	if (it != types.end())
 		return &it->second;
