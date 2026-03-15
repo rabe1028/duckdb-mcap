@@ -197,7 +197,15 @@ public:
 			valid_ = false;
 			return;
 		}
-		le_ = (data[1] == 0x01 || data[1] == 0x06);
+		// Supported encapsulation IDs: 0x00=CDR_BE, 0x01=CDR_LE, 0x06=CDR2_LE, 0x07=CDR2_BE
+		uint8_t encap = data[1];
+		if (encap != 0x00 && encap != 0x01 && encap != 0x06 && encap != 0x07) {
+			base_ = data;
+			size_ = 0;
+			valid_ = false;
+			return;
+		}
+		le_ = (encap == 0x01 || encap == 0x06);
 		base_ = data + 4;
 		size_ = size - 4;
 		valid_ = true;
@@ -365,12 +373,19 @@ inline std::optional<std::reference_wrapper<const MsgDef>> FindType(const std::s
 	}
 
 	// 3. Short name fallback: "Header" matches "std_msgs/msg/Header"
+	//    If multiple types share the same short name, return nullopt to avoid ambiguity.
+	const MsgDef *match = nullptr;
 	for (const auto &[name, def] : types) {
 		auto last_slash = name.rfind('/');
 		if (last_slash != std::string::npos && name.substr(last_slash + 1) == type_name) {
-			return std::cref(def);
+			if (match) {
+				return std::nullopt; // ambiguous — multiple types with same short name
+			}
+			match = &def;
 		}
 	}
+	if (match)
+		return std::cref(*match);
 
 	return std::nullopt;
 }
