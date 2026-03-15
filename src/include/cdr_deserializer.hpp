@@ -159,7 +159,7 @@ private:
 			current_body += line + "\n";
 			has_content = true;
 		}
-		if (has_content || sections.empty()) {
+		if (has_content || !current_name.empty() || sections.empty()) {
 			sections.emplace_back(current_name, current_body);
 		}
 		return sections;
@@ -197,7 +197,13 @@ public:
 			valid_ = false;
 			return;
 		}
-		// Supported encapsulation IDs: 0x00=CDR_BE, 0x01=CDR_LE, 0x06=CDR2_LE, 0x07=CDR2_BE
+		// CDR encapsulation: data[0] must be 0x00, data[1] is the encoding kind
+		if (data[0] != 0x00) {
+			base_ = data;
+			size_ = 0;
+			valid_ = false;
+			return;
+		}
 		uint8_t encap = data[1];
 		if (encap != 0x00 && encap != 0x01 && encap != 0x06 && encap != 0x07) {
 			base_ = data;

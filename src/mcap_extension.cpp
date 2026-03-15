@@ -15,10 +15,18 @@ using namespace duckdb_zstd; // NOLINT
 // lz4: bundled in third_party/lz4 (global namespace, no conflict)
 #include <mcap/reader.hpp>
 
+#include <algorithm>
+#include <climits>
 #include <memory>
 #include <unordered_set>
 
 namespace duckdb {
+
+// ── Shared: safe nanosecond timestamp conversion (clamp to avoid C++17 UB) ───
+static timestamp_ns_t SafeTimestampNs(uint64_t nanos) {
+	auto clamped = std::min(nanos, static_cast<uint64_t>(INT64_MAX));
+	return timestamp_ns_t(static_cast<int64_t>(clamped));
+}
 
 // ── Shared: open reader and read summary ─────────────────────────────────────
 static void OpenAndReadSummary(mcap::McapReader &reader, const std::string &path) {
@@ -126,8 +134,14 @@ static Value CdrFieldToValue(cdr::CdrReader &reader, const std::string &type_nam
 static Value CdrArrayToValue(cdr::CdrReader &reader, const cdr::FieldDef &field,
                              const std::unordered_map<std::string, cdr::MsgDef> &types) {
 	uint32_t cnt = reader.ReadArrayCount(field);
+	if (!reader.Ok()) {
+		return Value();
+	}
 	if (cdr::IsByteType(field.type_name)) {
 		auto blob_data = reader.ReadBytes(cnt);
+		if (!reader.Ok()) {
+			return Value();
+		}
 		return Value::BLOB(reinterpret_cast<const_data_ptr_t>(blob_data.data()), static_cast<idx_t>(blob_data.size()));
 	}
 	vector<Value> elements;
@@ -300,8 +314,8 @@ static void ReadMcapChannelFunction(ClientContext &context, TableFunctionInput &
 		}
 
 		output.data[0].SetValue(count, Value::UINTEGER(msg.sequence));
-		output.data[1].SetValue(count, Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(msg.logTime))));
-		output.data[2].SetValue(count, Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(msg.publishTime))));
+		output.data[1].SetValue(count, Value::TIMESTAMPNS(SafeTimestampNs(msg.logTime)));
+		output.data[2].SetValue(count, Value::TIMESTAMPNS(SafeTimestampNs(msg.publishTime)));
 
 		if (msg_view.channel->messageEncoding == "cdr" && msg.data && msg.dataSize > 4) {
 			cdr::CdrReader cdr_reader(reinterpret_cast<const uint8_t *>(msg.data), msg.dataSize);
@@ -536,8 +550,8 @@ static void McapStatisticsFunction(ClientContext &context, TableFunctionInput &d
 		output.data[3].SetValue(0, Value::UINTEGER(s.attachmentCount));
 		output.data[4].SetValue(0, Value::UINTEGER(s.metadataCount));
 		output.data[5].SetValue(0, Value::UINTEGER(s.chunkCount));
-		output.data[6].SetValue(0, Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(s.messageStartTime))));
-		output.data[7].SetValue(0, Value::TIMESTAMPNS(timestamp_ns_t(static_cast<int64_t>(s.messageEndTime))));
+		output.data[6].SetValue(0, Value::TIMESTAMPNS(SafeTimestampNs(s.messageStartTime)));
+		output.data[7].SetValue(0, Value::TIMESTAMPNS(SafeTimestampNs(s.messageEndTime)));
 	} else {
 		for (idx_t i = 0; i < 8; i++)
 			output.data[i].SetValue(0, Value());
