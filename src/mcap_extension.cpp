@@ -59,30 +59,30 @@ struct McapIterState : public GlobalTableFunctionState {
 // ── Shared: field → LogicalType (single field, handles byte→BLOB, array→LIST) ─
 static LogicalType PrimTypeToLogical(const std::string &type_name) {
 	if (type_name == "bool")
-		return LogicalType::BOOLEAN;
+		return LogicalType(LogicalTypeId::BOOLEAN);
 	if (type_name == "int8")
-		return LogicalType::TINYINT;
+		return LogicalType(LogicalTypeId::TINYINT);
 	if (cdr::IsByteType(type_name))
-		return LogicalType::UTINYINT;
+		return LogicalType(LogicalTypeId::UTINYINT);
 	if (type_name == "int16")
-		return LogicalType::SMALLINT;
+		return LogicalType(LogicalTypeId::SMALLINT);
 	if (type_name == "uint16")
-		return LogicalType::USMALLINT;
+		return LogicalType(LogicalTypeId::USMALLINT);
 	if (type_name == "int32")
-		return LogicalType::INTEGER;
+		return LogicalType(LogicalTypeId::INTEGER);
 	if (type_name == "uint32")
-		return LogicalType::UINTEGER;
+		return LogicalType(LogicalTypeId::UINTEGER);
 	if (type_name == "int64")
-		return LogicalType::BIGINT;
+		return LogicalType(LogicalTypeId::BIGINT);
 	if (type_name == "uint64")
-		return LogicalType::UBIGINT;
+		return LogicalType(LogicalTypeId::UBIGINT);
 	if (type_name == "float32")
-		return LogicalType::FLOAT;
+		return LogicalType(LogicalTypeId::FLOAT);
 	if (type_name == "float64")
-		return LogicalType::DOUBLE;
+		return LogicalType(LogicalTypeId::DOUBLE);
 	if (type_name == "string")
-		return LogicalType::VARCHAR;
-	return LogicalType::VARCHAR;
+		return LogicalType(LogicalTypeId::VARCHAR);
+	return LogicalType(LogicalTypeId::VARCHAR);
 }
 
 static LogicalType MsgDefToLogical(const cdr::MsgDef &msg, const std::unordered_map<std::string, cdr::MsgDef> &types);
@@ -94,7 +94,7 @@ static LogicalType FieldTypeToLogical(const std::string &type_name,
 	const cdr::MsgDef *def = cdr::FindType(type_name, types);
 	if (def)
 		return MsgDefToLogical(*def, types);
-	return LogicalType::VARCHAR;
+	return LogicalType(LogicalTypeId::VARCHAR);
 }
 
 // Maps a FieldDef to the appropriate DuckDB LogicalType (byte[]→BLOB, other[]→LIST).
@@ -102,7 +102,7 @@ static LogicalType FieldDefToLogical(const cdr::FieldDef &field,
                                      const std::unordered_map<std::string, cdr::MsgDef> &types) {
 	auto base_type = FieldTypeToLogical(field.type_name, types);
 	if (field.is_array) {
-		return cdr::IsByteType(field.type_name) ? LogicalType::BLOB : LogicalType::LIST(base_type);
+		return cdr::IsByteType(field.type_name) ? LogicalType(LogicalTypeId::BLOB) : LogicalType::LIST(base_type);
 	}
 	return base_type;
 }
@@ -231,11 +231,11 @@ static unique_ptr<FunctionData> ReadMcapChannelBind(ClientContext &context, Tabl
 	}
 
 	names.emplace_back("sequence");
-	return_types.emplace_back(LogicalType::UINTEGER);
+	return_types.emplace_back(LogicalType(LogicalTypeId::UINTEGER));
 	names.emplace_back("log_time");
-	return_types.emplace_back(LogicalType::TIMESTAMP_NS);
+	return_types.emplace_back(LogicalType(LogicalTypeId::TIMESTAMP_NS));
 	names.emplace_back("publish_time");
-	return_types.emplace_back(LogicalType::TIMESTAMP_NS);
+	return_types.emplace_back(LogicalType(LogicalTypeId::TIMESTAMP_NS));
 
 	auto main_it = result->types.find(result->schema_name);
 	if (main_it != result->types.end()) {
@@ -338,17 +338,17 @@ static unique_ptr<FunctionData> McapChannelsBind(ClientContext &context, TableFu
 	auto result = make_uniq<McapFileBindData>();
 	result->file_path = input.inputs[0].GetValue<string>();
 	names.emplace_back("channel_id");
-	return_types.emplace_back(LogicalType::USMALLINT);
+	return_types.emplace_back(LogicalType(LogicalTypeId::USMALLINT));
 	names.emplace_back("topic");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	names.emplace_back("message_encoding");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	names.emplace_back("schema_id");
-	return_types.emplace_back(LogicalType::USMALLINT);
+	return_types.emplace_back(LogicalType(LogicalTypeId::USMALLINT));
 	names.emplace_back("schema_name");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	names.emplace_back("metadata");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	return result;
 }
 
@@ -409,13 +409,13 @@ static unique_ptr<FunctionData> McapSchemasBind(ClientContext &context, TableFun
 	auto result = make_uniq<McapFileBindData>();
 	result->file_path = input.inputs[0].GetValue<string>();
 	names.emplace_back("schema_id");
-	return_types.emplace_back(LogicalType::USMALLINT);
+	return_types.emplace_back(LogicalType(LogicalTypeId::USMALLINT));
 	names.emplace_back("name");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	names.emplace_back("encoding");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	names.emplace_back("data");
-	return_types.emplace_back(LogicalType::BLOB);
+	return_types.emplace_back(LogicalType(LogicalTypeId::BLOB));
 	return result;
 }
 
@@ -443,7 +443,7 @@ static void McapSchemasFunction(ClientContext &context, TableFunctionInput &data
 			output.data[3].SetValue(
 			    count, Value::BLOB(reinterpret_cast<const_data_ptr_t>(schema.data.data()), schema.data.size()));
 		} else {
-			output.data[3].SetValue(count, Value(LogicalType::BLOB));
+			output.data[3].SetValue(count, Value(LogicalType(LogicalTypeId::BLOB)));
 		}
 		++count;
 		++gstate.current_idx;
@@ -464,25 +464,25 @@ static unique_ptr<FunctionData> McapStatisticsBind(ClientContext &context, Table
 	auto result = make_uniq<McapFileBindData>();
 	result->file_path = input.inputs[0].GetValue<string>();
 	names.emplace_back("message_count");
-	return_types.emplace_back(LogicalType::UBIGINT);
+	return_types.emplace_back(LogicalType(LogicalTypeId::UBIGINT));
 	names.emplace_back("schema_count");
-	return_types.emplace_back(LogicalType::USMALLINT);
+	return_types.emplace_back(LogicalType(LogicalTypeId::USMALLINT));
 	names.emplace_back("channel_count");
-	return_types.emplace_back(LogicalType::UINTEGER);
+	return_types.emplace_back(LogicalType(LogicalTypeId::UINTEGER));
 	names.emplace_back("attachment_count");
-	return_types.emplace_back(LogicalType::UINTEGER);
+	return_types.emplace_back(LogicalType(LogicalTypeId::UINTEGER));
 	names.emplace_back("metadata_count");
-	return_types.emplace_back(LogicalType::UINTEGER);
+	return_types.emplace_back(LogicalType(LogicalTypeId::UINTEGER));
 	names.emplace_back("chunk_count");
-	return_types.emplace_back(LogicalType::UINTEGER);
+	return_types.emplace_back(LogicalType(LogicalTypeId::UINTEGER));
 	names.emplace_back("message_start_time");
-	return_types.emplace_back(LogicalType::TIMESTAMP_NS);
+	return_types.emplace_back(LogicalType(LogicalTypeId::TIMESTAMP_NS));
 	names.emplace_back("message_end_time");
-	return_types.emplace_back(LogicalType::TIMESTAMP_NS);
+	return_types.emplace_back(LogicalType(LogicalTypeId::TIMESTAMP_NS));
 	names.emplace_back("profile");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	names.emplace_back("library");
-	return_types.emplace_back(LogicalType::VARCHAR);
+	return_types.emplace_back(LogicalType(LogicalTypeId::VARCHAR));
 	return result;
 }
 
@@ -533,20 +533,21 @@ static void McapStatisticsFunction(ClientContext &context, TableFunctionInput &d
 // Extension Registration
 // ═════════════════════════════════════════════════════════════════════════════
 static void LoadInternal(ExtensionLoader &loader) {
-	TableFunction read_mcap_channel("read_mcap_channel", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+	TableFunction read_mcap_channel("read_mcap_channel",
+	                                {LogicalType(LogicalTypeId::VARCHAR), LogicalType(LogicalTypeId::VARCHAR)},
 	                                ReadMcapChannelFunction, ReadMcapChannelBind, ReadMcapChannelInitGlobal);
 	loader.RegisterFunction(read_mcap_channel);
 
-	TableFunction mcap_channels("mcap_channels", {LogicalType::VARCHAR}, McapChannelsFunction, McapChannelsBind,
-	                            McapChannelsInitGlobal);
+	TableFunction mcap_channels("mcap_channels", {LogicalType(LogicalTypeId::VARCHAR)}, McapChannelsFunction,
+	                            McapChannelsBind, McapChannelsInitGlobal);
 	loader.RegisterFunction(mcap_channels);
 
-	TableFunction mcap_schemas("mcap_schemas", {LogicalType::VARCHAR}, McapSchemasFunction, McapSchemasBind,
-	                           McapSchemasInitGlobal);
+	TableFunction mcap_schemas("mcap_schemas", {LogicalType(LogicalTypeId::VARCHAR)}, McapSchemasFunction,
+	                           McapSchemasBind, McapSchemasInitGlobal);
 	loader.RegisterFunction(mcap_schemas);
 
-	TableFunction mcap_statistics("mcap_statistics", {LogicalType::VARCHAR}, McapStatisticsFunction, McapStatisticsBind,
-	                              McapStatisticsInitGlobal);
+	TableFunction mcap_statistics("mcap_statistics", {LogicalType(LogicalTypeId::VARCHAR)}, McapStatisticsFunction,
+	                              McapStatisticsBind, McapStatisticsInitGlobal);
 	loader.RegisterFunction(mcap_statistics);
 }
 
