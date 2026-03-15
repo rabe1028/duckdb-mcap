@@ -8,6 +8,8 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 project(${TARGET_NAME})
 include_directories(src/include)
 include_directories(third_party/mcap/include)
+# zstd headers from DuckDB's bundled third-party library (for MCAP decompression)
+include_directories(${PROJECT_SOURCE_DIR}/../duckdb/third_party/zstd/include)
 
 set(EXTENSION_SOURCES src/mcap_extension.cpp)
 

@@ -315,6 +315,25 @@ WHERE prev_time IS NOT NULL AND log_time < prev_time;
 true
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# zstd-compressed MCAP file
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query I
+SELECT message_count FROM mcap_statistics('data/demo_zstd.mcap');
+----
+450
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose');
+----
+100
+
+query I
+SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose') LIMIT 1;
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Error cases
 # ═══════════════════════════════════════════════════════════════════════════════
 

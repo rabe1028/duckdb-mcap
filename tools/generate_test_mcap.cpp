@@ -3,7 +3,6 @@
 
 #define MCAP_IMPLEMENTATION
 #define MCAP_COMPRESSION_NO_LZ4
-#define MCAP_COMPRESSION_NO_ZSTD
 
 #include <mcap/writer.hpp>
 #include <cmath>
@@ -227,10 +226,11 @@ static void WriteVector3(CdrWriter &w, double x, double y, double z) {
 
 int main(int argc, char *argv[]) {
 	const std::string output_path = (argc > 1) ? argv[1] : "data/demo.mcap";
+	bool use_zstd = (argc > 2 && std::string(argv[2]) == "--zstd");
 
 	mcap::McapWriter writer;
 	mcap::McapWriterOptions options("ros2");
-	options.compression = mcap::Compression::None;
+	options.compression = use_zstd ? mcap::Compression::Zstd : mcap::Compression::None;
 
 	auto status = writer.open(output_path, options);
 	if (!status.ok()) {
