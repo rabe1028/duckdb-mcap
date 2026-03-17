@@ -1,0 +1,440 @@
+# name: test/sql/mcap.test
+# description: test mcap extension
+# group: [sql]
+
+require mcap
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# mcap_statistics — all columns
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query IIIIIII
+SELECT message_count, schema_count, channel_count, attachment_count, metadata_count, chunk_count, profile
+FROM mcap_statistics('data/demo.mcap');
+----
+450	5	5	0	0	1	ros2
+
+query I
+SELECT library FROM mcap_statistics('data/demo.mcap');
+----
+libmcap 2.1.3
+
+# Timestamps are populated
+query I
+SELECT message_start_time < message_end_time FROM mcap_statistics('data/demo.mcap');
+----
+true
+
+# Returns exactly one row
+query I
+SELECT count(*) FROM mcap_statistics('data/demo.mcap');
+----
+1
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# mcap_channels — all columns
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query IIIII
+SELECT channel_id, topic, message_encoding, schema_id, schema_name
+FROM mcap_channels('data/demo.mcap')
+WHERE topic = '/localization/pose';
+----
+1	/localization/pose	cdr	1	geometry_msgs/msg/PoseStamped
+
+# All channels have cdr encoding
+query I
+SELECT count(DISTINCT message_encoding) FROM mcap_channels('data/demo.mcap');
+----
+1
+
+# Channel count matches statistics
+query I
+SELECT count(*) FROM mcap_channels('data/demo.mcap');
+----
+5
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# mcap_schemas — all columns
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query III
+SELECT schema_id, name, encoding FROM mcap_schemas('data/demo.mcap') WHERE name = 'std_msgs/msg/Float32';
+----
+4	std_msgs/msg/Float32	ros2msg
+
+# Schema data is non-empty
+query I
+SELECT octet_length(data) > 0 FROM mcap_schemas('data/demo.mcap') WHERE name = 'std_msgs/msg/Float32';
+----
+true
+
+# Schema count matches statistics
+query I
+SELECT count(*) FROM mcap_schemas('data/demo.mcap');
+----
+5
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# read_mcap_channel — PoseStamped: all columns and nested access
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# sequence, log_time, publish_time are present
+query III
+SELECT sequence, log_time, publish_time
+FROM read_mcap_channel('data/demo.mcap', '/localization/pose')
+LIMIT 1;
+----
+0	2024-01-15 10:00:00	2024-01-15 10:00:00
+
+# Row count
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/localization/pose');
+----
+100
+
+# header.stamp nested access
+query II
+SELECT header.stamp.sec, header.stamp.nanosec
+FROM read_mcap_channel('data/demo.mcap', '/localization/pose')
+LIMIT 1;
+----
+1705312800	0
+
+# header.frame_id
+query I
+SELECT header.frame_id FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1;
+----
+map
+
+# pose.position (all 3 axes)
+query I
+SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1;
+----
+100
+
+query I
+SELECT CAST(pose.position.y AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1;
+----
+200
+
+query I
+SELECT CAST(pose.position.z AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1;
+----
+0
+
+# pose.orientation quaternion
+query I
+SELECT CAST(pose.orientation.w AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1;
+----
+1
+
+# Values change over time
+query I
+SELECT count(DISTINCT CAST(pose.position.x AS INTEGER)) > 1
+FROM read_mcap_channel('data/demo.mcap', '/localization/pose');
+----
+true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# read_mcap_channel — TwistStamped: linear/angular Vector3
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query I
+SELECT header.frame_id FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/twist') LIMIT 1;
+----
+base_link
+
+query I
+SELECT CAST(twist.linear.x AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/twist') LIMIT 1;
+----
+10
+
+query I
+SELECT CAST(twist.linear.y AS INTEGER)
+FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/twist') LIMIT 1;
+----
+0
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/twist');
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# read_mcap_channel — Float32: simple scalar
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query I
+SELECT CAST(data AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/velocity') LIMIT 1;
+----
+10
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/velocity');
+----
+50
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# read_mcap_channel — IMU: fixed-size arrays and nested types
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Fixed-size array length
+query I
+SELECT len(orientation_covariance) FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+9
+
+query I
+SELECT len(angular_velocity_covariance) FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+9
+
+query I
+SELECT len(linear_acceleration_covariance) FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+9
+
+# Array element access
+query I
+SELECT orientation_covariance[1] > 0
+FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+true
+
+# Nested struct inside IMU: orientation quaternion
+query I
+SELECT CAST(orientation.w AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+1
+
+# Nested struct: angular_velocity Vector3
+query I
+SELECT angular_velocity.x > 0 FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+true
+
+# Nested struct: linear_acceleration Vector3 (z ≈ 9.81)
+query I
+SELECT CAST(linear_acceleration.z AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data') LIMIT 1;
+----
+10
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data');
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# read_mcap_channel — PointCloud2: dynamic arrays, bool, BLOB, nested PointField
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Scalar fields
+query IIII
+SELECT height, width, point_step, row_step
+FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+1	100	12	1200
+
+# Boolean field
+query I
+SELECT is_dense FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+true
+
+query I
+SELECT is_bigendian FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+false
+
+# Dynamic array of structs (PointField[])
+query I
+SELECT len(fields) FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+3
+
+# Access PointField struct fields within the array
+query I
+SELECT fields[1].name FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+x
+
+query I
+SELECT fields[2].name FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+y
+
+query I
+SELECT fields[3].name FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+z
+
+# PointField.offset values
+query III
+SELECT fields[1].offset, fields[2].offset, fields[3].offset
+FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+0	4	8
+
+# uint8[] data → BLOB, non-empty
+query I
+SELECT octet_length(data) > 0 FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+true
+
+# header.frame_id
+query I
+SELECT header.frame_id FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud') LIMIT 1;
+----
+velodyne
+
+# Width increases over time
+query I
+SELECT count(DISTINCT width) > 1 FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud');
+----
+true
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud');
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# read_mcap_channel — timestamps ordering
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# log_time is monotonically non-decreasing
+query I
+SELECT count(*) = 0
+FROM (
+  SELECT log_time, LAG(log_time) OVER (ORDER BY sequence) AS prev_time
+  FROM read_mcap_channel('data/demo.mcap', '/localization/pose')
+) t
+WHERE prev_time IS NOT NULL AND log_time < prev_time;
+----
+true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# zstd-compressed MCAP file
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query I
+SELECT message_count FROM mcap_statistics('data/demo_zstd.mcap');
+----
+450
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose');
+----
+100
+
+query I
+SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose') LIMIT 1;
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# lz4-compressed MCAP file
+# ═══════════════════════════════════════════════════════════════════════════════
+
+query I
+SELECT message_count FROM mcap_statistics('data/demo_lz4.mcap');
+----
+450
+
+query I
+SELECT count(*) FROM read_mcap_channel('data/demo_lz4.mcap', '/localization/pose');
+----
+100
+
+query I
+SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_lz4.mcap', '/localization/pose') LIMIT 1;
+----
+100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Error cases
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Non-existent file
+statement error
+SELECT * FROM mcap_statistics('data/nonexistent.mcap');
+----
+Failed to open MCAP file
+
+statement error
+SELECT * FROM mcap_channels('data/nonexistent.mcap');
+----
+Failed to open MCAP file
+
+statement error
+SELECT * FROM mcap_schemas('data/nonexistent.mcap');
+----
+Failed to open MCAP file
+
+statement error
+SELECT * FROM read_mcap_channel('data/nonexistent.mcap', '/any');
+----
+Failed to open MCAP file
+
+# Non-existent topic
+statement error
+SELECT * FROM read_mcap_channel('data/demo.mcap', '/nonexistent/topic');
+----
+Topic '/nonexistent/topic' not found
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Boundary / edge cases
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Empty result set with LIMIT 0
+query I
+SELECT count(*) FROM (SELECT * FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 0);
+----
+0
+
+# All rows fetched (no off-by-one on iterator exhaustion)
+query I
+SELECT count(*) = (SELECT message_count FROM mcap_statistics('data/demo.mcap'))
+FROM (
+  SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/localization/pose')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/sensing/imu/data')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/twist')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/vehicle/status/velocity')
+  UNION ALL SELECT 1 FROM read_mcap_channel('data/demo.mcap', '/sensing/lidar/pointcloud')
+);
+----
+true
+
+# Cross-check: channels count matches distinct topics in data
+query I
+SELECT (SELECT count(*) FROM mcap_channels('data/demo.mcap'))
+     = (SELECT count(*) FROM mcap_schemas('data/demo.mcap'));
+----
+true
+
+# First and last sequence numbers are consistent
+query II
+SELECT min(sequence), max(sequence)
+FROM read_mcap_channel('data/demo.mcap', '/localization/pose');
+----
+0	446
+
+# Compressed files produce identical row counts as uncompressed
+query I
+SELECT
+  (SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/localization/pose'))
+= (SELECT count(*) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose'))
+AND
+  (SELECT count(*) FROM read_mcap_channel('data/demo.mcap', '/localization/pose'))
+= (SELECT count(*) FROM read_mcap_channel('data/demo_lz4.mcap', '/localization/pose'));
+----
+true
+
+# Compressed files produce identical values as uncompressed (spot check first row)
+query I
+SELECT
+  (SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo.mcap', '/localization/pose') LIMIT 1)
+= (SELECT CAST(pose.position.x AS INTEGER) FROM read_mcap_channel('data/demo_zstd.mcap', '/localization/pose') LIMIT 1);
+----
+true

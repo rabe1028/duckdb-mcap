@@ -1,0 +1,23 @@
+[tools]
+ninja = "1.13.2"
+black = "24.10.0"
+uv = "0.10.10"
+
+[env]
+_.path = ["~/.local/bin"]
+
+# Python packages installed via uv tool (cmake-format, clang-format 11)
+[tasks.install-dev-tools]
+description = "Install Python-based dev tools (cmake-format, clang-format 11)"
+run = """
+uv tool install cmakelang
+uv tool install clang-format==11.0.1
+"""
+
+[tasks.format-check]
+description = "Run format check (same as CI)"
+run = "python3 duckdb/scripts/format.py --all --check --directories src test"
+
+[tasks.format-fix]
+description = "Auto-fix formatting"
+run = "python3 duckdb/scripts/format.py --all --fix --noconfirm --directories src test"
